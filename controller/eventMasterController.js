@@ -1,6 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const selectFunction = require("../utils/selectFunction");
-
+const QRCode = require('qrcode');
 
 // /api/event
 // select event details
@@ -19,7 +19,8 @@ const selectEventDetails = asyncHandler(async (req, res) => {
           ENTRY_ON, 
           EVENT_DETAILS, 
           EVENT_REMARKS, 
-          EVENT_FEES 
+          EVENT_FEES,
+          USER_ID 
         FROM EVENT_MASTER`,
         [],
         "devuser"
@@ -27,7 +28,7 @@ const selectEventDetails = asyncHandler(async (req, res) => {
       res.json(result);
     } catch (err) {
       console.error(err.message);
-      res.status(500).send("Internal server error");
+      res.status(500).json("Internal server error");
     }
   });
   
@@ -48,7 +49,8 @@ const selectEventDetails = asyncHandler(async (req, res) => {
           ENTRY_ON, 
           EVENT_DETAILS, 
           EVENT_REMARKS, 
-          EVENT_FEES 
+          EVENT_FEES,
+          USER_ID
         FROM EVENT_MASTER 
         WHERE EVENT_ID = :EVENT_ID
       `;
@@ -66,7 +68,7 @@ const selectEventDetails = asyncHandler(async (req, res) => {
       res.json(result[0]); // Return the first matched result
     } catch (err) {
       console.error(err.message);
-      res.status(500).send("Internal server error");
+      res.status(500).json("Internal server error");
     }
   });
   
@@ -84,6 +86,7 @@ const selectEventDetails = asyncHandler(async (req, res) => {
         EVENT_DETAILS,
         EVENT_REMARKS,
         EVENT_FEES,
+        USER_ID
       } = req.body;
   
       // Validate required fields
@@ -91,30 +94,41 @@ const selectEventDetails = asyncHandler(async (req, res) => {
         return res.status(400).json({ Error: "Missing required fields." });
       }
   
-      // Logic to generate EVENT_ID
-      const currentYear = new Date().getFullYear();
-      const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
-      const yearSuffix = String(currentYear).slice(-2);
+//      // Logic to generate EVENT_ID
+// const currentYear = new Date().getFullYear();
+// const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0'); // Get current month and format
+// const yearSuffix = String(currentYear).slice(-2); // Last two digits of the current year
+
+// // Fetch current event count for this month
+// const eventCountQuery = `SELECT COUNT(*) AS count FROM EVENT_MASTER 
+//                          WHERE TO_CHAR(EVENT_FROM_DATE, 'YYYY-MM') = TO_CHAR(SYSDATE, 'YYYY-MM')`;
+
+// const countResult = await selectFunction.functionSelect(eventCountQuery, {}, "devuser");
+// console.log("Event Count Result:", countResult); // Log the count result
+
+// // Incrementing the count correctly
+// const newEventCount = countResult[0].COUNT ? parseInt(countResult[0].COUNT) + 1 : 1; // Ensure it's not NaN
+// console.log(newEventCount, "new event count");
+
+// // Formatting the EVENT_ID
+// const eventIdFormatted = `${yearSuffix}${currentMonth}${String(newEventCount).padStart(4, '0')}`; // Correctly pad the number
+// console.log("Formatted EVENT_ID:", eventIdFormatted); // Log the formatted EVENT_ID
+
+
+//   console.log(eventIdFormatted);
+//       // Check for uniqueness of EVENT_ID
+//       const existingIdQuery = `SELECT COUNT(*) AS count FROM EVENT_MASTER WHERE EVENT_ID = :EVENT_ID`;
+//       console.log(eventCountQuery,existingIdQuery);
+//       const existingIdResult = await selectFunction.functionSelect(existingIdQuery, { EVENT_ID: eventIdFormatted }, "devuser");
   
-      // Fetch current event count for this month
-      const eventCountQuery = `SELECT COUNT(*) AS count FROM EVENT_MASTER 
-                               WHERE TO_CHAR(EVENT_FROM_DATE, 'YYYY-MM') = TO_CHAR(SYSDATE, 'YYYY-MM')`;
-      
-      const countResult = await selectFunction.functionSelect(eventCountQuery, {}, "devuser");
-      console.log("Event Count Result:", countResult); // Log the count result
-  
-      const newEventCount = countResult[0].COUNT ? countResult[0].COUNT + 1 : 1; // Ensure it's not NaN
-      const eventIdFormatted = `${yearSuffix}${currentMonth}${String(newEventCount).padStart(4, '0')}`;
-  
-      // Check for uniqueness of EVENT_ID
-      const existingIdQuery = `SELECT COUNT(*) AS count FROM EVENT_MASTER WHERE EVENT_ID = :EVENT_ID`;
-      const existingIdResult = await selectFunction.functionSelect(existingIdQuery, { EVENT_ID: eventIdFormatted }, "devuser");
-  
-      if (existingIdResult[0].count > 0) {
-        console.error("Duplicate EVENT_ID generated:", eventIdFormatted);
-        return res.status(409).json({ Error: "Duplicate EVENT_ID generated." });
-      }
-  
+
+
+//       if (existingIdResult[0].count > 0) {
+//         console.error("Duplicate EVENT_ID generated:", eventIdFormatted);
+//         return res.status(409).json({ Error: "Duplicate EVENT_ID generated." });
+//       }
+        const id = await selectFunction.functionSelect(`select max(EVENT_ID)+1 MAX  from EVENT_MASTER`, [], "devuser");
+        const eventId = id[0]?.MAX || 1;
       // Prepare SQL query
       const query = `INSERT INTO EVENT_MASTER (
                        EVENT_ID, 
@@ -128,7 +142,8 @@ const selectEventDetails = asyncHandler(async (req, res) => {
                        ENTRY_ON, 
                        EVENT_DETAILS, 
                        EVENT_REMARKS, 
-                       EVENT_FEES
+                       EVENT_FEES,
+                       USER_ID
                      ) VALUES (
                        :EVENT_ID, 
                        :EVENT_NAME, 
@@ -141,11 +156,12 @@ const selectEventDetails = asyncHandler(async (req, res) => {
                        SYSDATE, 
                        :EVENT_DETAILS, 
                        :EVENT_REMARKS, 
-                       :EVENT_FEES
+                       :EVENT_FEES,
+                       :USER_ID
                      )`;
   
       const params = {
-        EVENT_ID: eventIdFormatted, // Use the generated EVENT_ID
+        EVENT_ID: eventId, // Use the generated EVENT_ID
         EVENT_NAME,
         EVENT_FROM_DATE,
         EVENT_TO_DATE,
@@ -155,7 +171,8 @@ const selectEventDetails = asyncHandler(async (req, res) => {
         ENTRY_BY,
         EVENT_DETAILS,
         EVENT_REMARKS,
-        EVENT_FEES: Number(EVENT_FEES), // Ensure this is a number
+        EVENT_FEES: Number(EVENT_FEES),
+        USER_ID // Ensure this is a number
       };
   
       // Log parameters before execution
@@ -163,9 +180,22 @@ const selectEventDetails = asyncHandler(async (req, res) => {
   
       // Execute the query
       const result = await selectFunction.functionInsert_Update(query, params, "devuser");
+
+
+      const insertedIdResult = await selectFunction.functionSelect(`SELECT MAX(EVENT_ID) AS ID FROM EVENT_MASTER`, [], "devuser");
+      const insertedEventId = insertedIdResult[0]?.ID;
   
+      if (!insertedEventId) {
+        throw new Error("Failed to retrieve inserted event ID.");
+      }
+     const qrCodeUrl = `http://192.168.90.209:${process.env.PORT}/register/${insertedEventId}`;
+      const qrCode = await QRCode.toDataURL(qrCodeUrl);
+      console.log("Generated QR Code URL:", qrCodeUrl);
+      console.log("Generated QR Code Data URL:", qrCode);
+  
+      res.json({ message: 'Event created successfully', qrCode });
       // Send success response
-      res.status(201).json(result);
+      // res.status(201).json(result);
     } catch (err) {
       console.error("Error in eventDetailInsert:", err);
       res.status(500).json({ Error: err.message });
